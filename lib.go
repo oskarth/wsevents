@@ -2,20 +2,17 @@ package wsevents
 
 import (
 	"code.google.com/p/go.net/websocket"
+	"container/list"
 	"encoding/json"
 	"fmt"
 )
 
 type hub struct {
-	connections map[*connection]bool
+	connections map[*Connection]bool
 	broadcast   chan event
-	register    chan *connection
-	unregister  chan *connection
-}
-
-type connection struct {
-	ws   *websocket.Conn
-	send chan event
+	register    chan *Connection
+	unregister  chan *Connection
+	connectFunc func(*Connection) // stores connect handler
 }
 
 type event struct {
@@ -23,12 +20,20 @@ type event struct {
 	Data interface{} `json:"data"` // takes arbitrary datas
 }
 
+type Connection struct {
+	ws       *websocket.Conn
+	send     chan event
+	eventMap map[string]list.List
+}
+
 var h = hub{
 	broadcast:   make(chan event),
-	register:    make(chan *connection),
-	unregister:  make(chan *connection),
-	connections: make(map[*connection]bool),
+	register:    make(chan *Connection),
+	unregister:  make(chan *Connection),
+	connections: make(map[*Connection]bool),
 }
+
+// hub methods
 
 func (h *hub) run() {
 	for {
@@ -36,6 +41,9 @@ func (h *hub) run() {
 		case c := <-h.register:
 			fmt.Print("Register: ", h.connections)
 			h.connections[c] = true
+			if h.connectFunc {
+				h.connectFunc(c)
+			}
 		case c := <-h.unregister:
 			delete(h.connections, c)
 			close(c.send)
@@ -54,7 +62,9 @@ func (h *hub) run() {
 	}
 }
 
-func (c *connection) reader() {
+// connection method
+
+func (c *Connection) reader() {
 	for {
 		var message string
 		err := websocket.Message.Receive(c.ws, &message)
@@ -72,7 +82,7 @@ func (c *connection) reader() {
 	c.ws.Close()
 }
 
-func (c *connection) writer() {
+func (c *Connection) writer() {
 	for ev := range c.send {
 		msg, err := json.Marshal(ev)
 		if err != nil {
@@ -86,11 +96,46 @@ func (c *connection) writer() {
 	c.ws.Close()
 }
 
-func wsHandler(ws *websocket.Conn) {
+// adds callback to an internal event map
+func (c *Connection) On(ev string, callback func(interface{})) {
+	if c.eventMap[ev] == nil {
+		c.eventMap[ev] = list.List.New()
+	}
+	c.eventMap[ev].PushBack(callback)
+}
+
+// calls event (with args if applicable)
+func (c *Connection) Emit(ev string, args ...interface{}) {
+	handlerList := c.eventMap[ev]
+	if handlerList == nil {
+		return
+	}
+
+	// apply args onto each callback
+	elem := handlerList.Front()
+	for elem != nil {
+		elem.Value(args...)
+		elem = elem.Next()
+	}
+}
+
+func Handler(ws *websocket.Conn) {
 	fmt.Print("New websocket connection ", ws)
-	c := &connection{send: make(chan event, 256), ws: ws}
+	c := &Connection{
+		send:     make(chan event, 256),
+		ws:       ws,
+		eventMap: map[string]list.List{},
+	}
 	h.register <- c
 	defer func() { h.unregister <- c }()
 	go c.writer()
 	c.reader()
+}
+
+func Run() {
+	h.run()
+}
+
+func Connect(handler func(*Connection)) {
+	h.connectFunc = handler
 }
