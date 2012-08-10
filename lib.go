@@ -1,4 +1,4 @@
-package webrtc
+package ws-events
 
 import (
   "fmt"
