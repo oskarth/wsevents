@@ -23,7 +23,7 @@ type event struct {
 type Connection struct {
 	ws       *websocket.Conn
 	send     chan event
-	eventMap map[string]list.List
+	eventMap map[string]*list.List
 }
 
 var h = hub{
@@ -41,7 +41,7 @@ func (h *hub) run() {
 		case c := <-h.register:
 			fmt.Print("Register: ", h.connections)
 			h.connections[c] = true
-			if h.connectFunc {
+			if h.connectFunc != nil {
 				h.connectFunc(c)
 			}
 		case c := <-h.unregister:
@@ -62,7 +62,7 @@ func (h *hub) run() {
 	}
 }
 
-// connection method
+// connection methods
 
 func (c *Connection) reader() {
 	for {
@@ -99,7 +99,7 @@ func (c *Connection) writer() {
 // adds callback to an internal event map
 func (c *Connection) On(ev string, callback func(interface{})) {
 	if c.eventMap[ev] == nil {
-		c.eventMap[ev] = list.List.New()
+		c.eventMap[ev] = new(list.List)
 	}
 	c.eventMap[ev].PushBack(callback)
 }
@@ -114,7 +114,8 @@ func (c *Connection) Emit(ev string, args ...interface{}) {
 	// apply args onto each callback
 	elem := handlerList.Front()
 	for elem != nil {
-		elem.Value(args...)
+		f := elem.Value.(func(...interface{}))
+		f(args...)
 		elem = elem.Next()
 	}
 }
@@ -124,7 +125,7 @@ func Handler(ws *websocket.Conn) {
 	c := &Connection{
 		send:     make(chan event, 256),
 		ws:       ws,
-		eventMap: map[string]list.List{},
+		eventMap: map[string]*list.List{},
 	}
 	h.register <- c
 	defer func() { h.unregister <- c }()
