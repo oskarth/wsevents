@@ -77,7 +77,21 @@ func (c *Connection) reader() {
 			fmt.Println(err)
 			break
 		}
-		h.broadcast <- ev
+
+		// get the handler list associated with an event
+		handlerList := c.eventMap[ev.Name]
+		if handlerList == nil {
+			fmt.Println("No associated events")
+			continue
+		}
+
+		// apply args onto each callback
+		elem := handlerList.Front()
+		for elem != nil {
+			f := elem.Value.(func(interface{}))
+			f(ev.Data)
+			elem = elem.Next()
+		}
 	}
 	c.ws.Close()
 }
@@ -105,18 +119,19 @@ func (c *Connection) On(ev string, callback func(interface{})) {
 }
 
 // calls event (with args if applicable)
-func (c *Connection) Emit(ev string, args ...interface{}) {
-	handlerList := c.eventMap[ev]
-	if handlerList == nil {
-		return
-	}
+func (c *Connection) Emit(eventName string, data interface{}) {
+	var ev event
+	ev.Name = eventName
+	ev.Data = data
+	c.send <- ev
+}
 
-	// apply args onto each callback
-	elem := handlerList.Front()
-	for elem != nil {
-		f := elem.Value.(func(...interface{}))
-		f(args...)
-		elem = elem.Next()
+// TODO: need to support broadcasting "to" a room.
+func (c *Connection) Broadcast(ev string, data interface{}) {
+	for conn := range h.connections {
+		if conn != c {
+			conn.Emit(ev, data)
+		}
 	}
 }
 
