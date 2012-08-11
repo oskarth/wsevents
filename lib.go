@@ -9,15 +9,21 @@ import (
 
 type hub struct {
 	connections map[*Connection]bool
-	broadcast   chan event
 	register    chan *Connection
 	unregister  chan *Connection
 	connectFunc func(*Connection) // stores connect handler
+	rooms       map[string]*list.List
 }
 
 type event struct {
 	Name string      `json:"eventName"`
 	Data interface{} `json:"data"` // takes arbitrary datas
+}
+
+// label n candidate?
+type iceCandidate struct {
+	Label     string `json:"label"`
+	Candidate string `json:"candidate"`
 }
 
 type Connection struct {
@@ -27,7 +33,6 @@ type Connection struct {
 }
 
 var h = hub{
-	broadcast:   make(chan event),
 	register:    make(chan *Connection),
 	unregister:  make(chan *Connection),
 	connections: make(map[*Connection]bool),
@@ -41,28 +46,46 @@ func (h *hub) run() {
 		case c := <-h.register:
 			fmt.Print("Register: ", h.connections)
 			h.connections[c] = true
+			c.init()
 			if h.connectFunc != nil {
 				h.connectFunc(c)
 			}
 		case c := <-h.unregister:
 			delete(h.connections, c)
 			close(c.send)
-		case ev := <-h.broadcast:
-			fmt.Println("Broadcast: ", ev.Name, " : ", ev.Data)
-			for c := range h.connections {
-				select {
-				case c.send <- ev:
-				default:
-					delete(h.connections, c)
-					close(c.send)
-					go c.ws.Close()
-				}
-			}
 		}
 	}
 }
 
 // connection methods
+
+func (c *Connection) init() {
+	c.On("join_room", func(room string) {
+		// generate random Id
+		if h.rooms[room] == nil {
+			h.rooms[room] = new(list.List)
+		}
+		h.rooms[room].PushBack(c)
+		// broadcast the new peer to a certain room
+	})
+
+	c.On("send_ice_candidate", func(ice iceCandidate) {
+		data := map[string]string{
+			"label":     ice.label,
+			"candidate": ice.candidate,
+			"socketId":  c.Id,
+		}
+		c.Emit("receive_ice_candidate", data)
+	})
+
+	c.On("send_offer", func(msg interface{}) {
+		// where?
+	})
+
+	c.On("send_answer", func(msg interface{}) {
+		// where?
+	})
+}
 
 func (c *Connection) reader() {
 	for {
