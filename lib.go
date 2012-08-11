@@ -7,6 +7,13 @@ import (
 	"fmt"
 )
 
+// CODE REVIEW BY JORDAN, see logs in #hackerschool-go for details
+// room string vs interface
+// json.rawmessage
+// slices instead of container list
+//`type eventHandler interface{ handleEvent(somethingHere) error 
+//}` (json.rawmessage / interface)
+
 type hub struct {
 	connections map[*Connection]bool
 	register    chan *Connection
@@ -20,16 +27,10 @@ type event struct {
 	Data interface{} `json:"data"` // takes arbitrary datas
 }
 
-// label n candidate?
-type iceCandidate struct {
-	Label     string `json:"label"`
-	Candidate string `json:"candidate"`
-}
-
 type Connection struct {
 	ws       *websocket.Conn
 	send     chan event
-	eventMap map[string]*list.List
+	eventMap map[string]*list.List // map[string]eventHandler
 }
 
 var h = hub{
@@ -60,30 +61,14 @@ func (h *hub) run() {
 // connection methods
 
 func (c *Connection) init() {
-	c.On("join_room", func(room string) {
+	c.On("join_room", func(any interface{}) {
+		room := any.(string)
 		// generate random Id
 		if h.rooms[room] == nil {
 			h.rooms[room] = new(list.List)
 		}
 		h.rooms[room].PushBack(c)
 		// broadcast the new peer to a certain room
-	})
-
-	c.On("send_ice_candidate", func(ice iceCandidate) {
-		data := map[string]string{
-			"label":     ice.label,
-			"candidate": ice.candidate,
-			"socketId":  c.Id,
-		}
-		c.Emit("receive_ice_candidate", data)
-	})
-
-	c.On("send_offer", func(msg interface{}) {
-		// where?
-	})
-
-	c.On("send_answer", func(msg interface{}) {
-		// where?
 	})
 }
 
