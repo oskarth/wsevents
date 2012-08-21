@@ -62,7 +62,9 @@ func (h *hub) run() {
 
 func (c *Connection) init() {
 	c.On("join_room", func(any interface{}) {
-		room := any.(string)
+    fmt.Println("AAA")
+		room := any.(string) //interface is nil why?
+    fmt.Println("BBB")
 		// generate random Id
 		if h.rooms[room] == nil {
 			h.rooms[room] = new(list.List)
@@ -142,6 +144,7 @@ func (c *Connection) Broadcast(ev string, data interface{}) {
 		}
 	}
 }
+
 
 func Handler(ws *websocket.Conn) {
 	fmt.Print("New websocket connection ", ws)
